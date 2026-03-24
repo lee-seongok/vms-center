@@ -335,86 +335,143 @@
             );
         };
 
+        // 개선된 주소 검색 모달 (2단계 상세 주소 입력 포함)
         const AddressSearchModal = ({ isOpen, onClose, onComplete }) => {
             const containerRef = useRef(null);
-            const callbacks = useRef({ onComplete, onClose });
+            const detailInputRef = useRef(null);
             
-            useEffect(() => { callbacks.current = { onComplete, onClose }; });
-            
+            const [step, setStep] = useState(1); // 1: 기본주소 검색, 2: 상세주소 입력
+            const [baseAddress, setBaseAddress] = useState('');
+            const [detailAddress, setDetailAddress] = useState('');
+
+            // 열릴 때마다 상태 초기화
             useEffect(() => {
-                if (!isOpen || !containerRef.current) return;
+                if (isOpen) {
+                    setStep(1);
+                    setBaseAddress('');
+                    setDetailAddress('');
+                }
+            }, [isOpen]);
+
+            // 상세 주소 입력 단계로 넘어가면 입력창 자동 포커스
+            useEffect(() => {
+                if (step === 2 && detailInputRef.current) {
+                    detailInputRef.current.focus();
+                }
+            }, [step]);
+
+            useEffect(() => {
+                if (!isOpen || step !== 1 || !containerRef.current) return;
                 
-                // 자식 요소가 비어있을 때만 Daum API를 로드(초기화)하여 강제 리렌더 방지
+                // 자식 요소가 비어있을 때만 Daum API를 초기화
                 if (containerRef.current.childElementCount === 0) {
-                    containerRef.current.innerHTML = '';
-                    
                     if (!window.daum || !window.daum.Postcode) {
-                        containerRef.current.innerHTML = '<div style="padding:20px;color:red;font-weight:bold;text-align:center;">주소 검색 API(Daum Postcode) 로딩에 실패했습니다.<br/>네트워크 연결을 확인하세요.</div>';
+                        containerRef.current.innerHTML = '<div style="padding:20px;color:red;font-weight:bold;text-align:center;">API 로딩 실패</div>';
                         return;
                     }
 
-                    // 전역 콜백 연결 (iframe 내부에서 접근)
-                    window.__daumAddressComplete__ = (data) => {
-                        if (callbacks.current.onComplete) {
-                            callbacks.current.onComplete(data);
-                        }
-                        if (callbacks.current.onClose) {
-                            callbacks.current.onClose(); // 주소 선택 후 모달 확실하게 닫기
-                        }
-                    };
-
                     new window.daum.Postcode({
                         oncomplete: function(data) {
-                            if (window.__daumAddressComplete__) {
-                                window.__daumAddressComplete__(data);
+                            // 기본 주소 추출
+                            let addr = data.roadAddress || data.jibunAddress || data.address || '';
+                            
+                            // 건물명(아파트 등)이 있으면 괄호로 추가
+                            let extra = '';
+                            if (data.bname && data.apartment === 'Y') {
+                                extra += data.bname;
                             }
+                            if (extra) {
+                                addr += ` (${extra})`;
+                            }
+
+                            // Daum API 스크립트 실행이 안전하게 종료될 수 있도록 딜레이 후 React 상태 변경
+                            setTimeout(() => {
+                                setBaseAddress(addr);
+                                setStep(2); // 상세 주소 입력 단계로 전환
+                            }, 50);
                         },
                         width: '100%', 
                         height: '100%'
-                    }).embed(containerRef.current); // autoClose: false 옵션 제거(안정화)
+                        // embed 모드에서는 충돌을 유발할 수 있으므로 autoClose: false 옵션은 제외
+                    }).embed(containerRef.current); 
                 }
-            }, [isOpen]); 
+            }, [isOpen, step]); 
 
-            // 컴포넌트가 언마운트될 때 전역 함수 제거
-            useEffect(() => {
-                return () => {
-                    delete window.__daumAddressComplete__;
-                };
-            }, []);
+            // 최종 완료 처리
+            const handleFinalComplete = () => {
+                const fullAddress = detailAddress.trim() ? `${baseAddress} ${detailAddress.trim()}` : baseAddress;
+                onComplete({ address: fullAddress });
+            };
 
-            // 핵심 수정: 언마운트 하지 않고 CSS로 DOM(containerRef)을 유지시킴
-            if (!isOpen) {
-                return <div style={{ display: 'none' }} ref={containerRef}></div>;
-            }
+            // 닫혀있을 때는 깔끔하게 null을 반환하여 React 언마운트
+            if (!isOpen) return null; 
 
             return (
                 <div 
                     className="fixed inset-0 bg-black/60 z-[3000] flex items-center justify-center p-4 no-print backdrop-blur-sm"
                     onMouseDown={(e) => {
-                        if (e.target === e.currentTarget && callbacks.current.onClose) callbacks.current.onClose();
+                        if (e.target === e.currentTarget) onClose();
                     }}
                 >
                     <div 
-                        className="bg-white rounded-xl shadow-2xl w-full max-w-lg flex flex-col h-[600px] overflow-hidden border border-slate-300"
-                        onMouseDown={(e) => e.stopPropagation()} // 이벤트 전파 방지
+                        className="bg-white rounded-xl shadow-2xl w-full max-w-lg flex flex-col overflow-hidden border border-slate-300 transition-all duration-300"
+                        style={{ height: step === 1 ? '600px' : 'auto' }}
+                        onMouseDown={(e) => e.stopPropagation()} 
                     >
-                        <div className="p-4 bg-slate-900 text-white flex justify-between items-center font-bold">
-                            <h2 className="flex items-center gap-2"><Icon name="MapPin" /> 주소 검색</h2>
-                            <button onClick={() => callbacks.current.onClose && callbacks.current.onClose()} className="hover:text-red-400 transition-colors"><Icon name="X" size={24}/></button>
+                        <div className="p-4 bg-slate-900 text-white flex justify-between items-center font-bold shrink-0">
+                            <h2 className="flex items-center gap-2"><Icon name="MapPin" /> {step === 1 ? '주소 검색' : '상세 주소 입력'}</h2>
+                            <button onClick={onClose} className="hover:text-red-400 transition-colors">
+                                <Icon name="X" size={24}/>
+                            </button>
                         </div>
-                        <div className="bg-indigo-50 text-indigo-700 text-xs text-center py-2 font-bold border-b border-indigo-100">
-                            <Icon name="Info" size={14} className="inline mr-1 -mt-0.5" /> 주소를 한 번만 클릭하면 자동으로 적용됩니다.
-                        </div>
-                        <div ref={containerRef} className="flex-1 bg-white w-full h-full"></div>
+                        
+                        {step === 1 && (
+                            <div className="bg-indigo-50 text-indigo-700 text-xs text-center py-2 font-bold border-b border-indigo-100 shrink-0">
+                                <Icon name="Info" size={14} className="inline mr-1 -mt-0.5" /> 주소를 클릭하면 상세 주소 입력 화면으로 넘어갑니다.
+                            </div>
+                        )}
+                        
+                        <div ref={containerRef} className={cx("flex-1 bg-white w-full h-full", step === 1 ? "block" : "hidden")}></div>
+
+                        {step === 2 && (
+                            <div className="p-8 flex flex-col gap-6 animate-in fade-in zoom-in duration-300">
+                                <div className="space-y-2">
+                                    <label className="text-sm font-bold text-slate-600">기본 주소</label>
+                                    <div className="w-full border border-slate-200 bg-slate-50 p-3 rounded-xl text-slate-800 font-bold text-sm">
+                                        {baseAddress}
+                                    </div>
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-sm font-bold text-blue-600">상세 주소 입력</label>
+                                    <input 
+                                        type="text" 
+                                        ref={detailInputRef}
+                                        className="w-full border-2 border-blue-300 p-3 rounded-xl text-slate-900 font-bold focus:outline-none focus:ring-4 focus:ring-blue-100 text-sm transition-all" 
+                                        placeholder="동, 호수 등 상세 주소를 입력해주세요" 
+                                        value={detailAddress} 
+                                        onChange={(e) => setDetailAddress(e.target.value)} 
+                                        onKeyDown={(e) => { if (e.key === 'Enter') handleFinalComplete(); }}
+                                    />
+                                </div>
+                                <div className="flex gap-2 mt-4">
+                                    <button onClick={() => setStep(1)} className="w-1/3 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold py-3.5 rounded-xl transition-colors text-sm">
+                                        다시 검색
+                                    </button>
+                                    <button onClick={handleFinalComplete} className="w-2/3 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 rounded-xl shadow-lg transition-colors text-sm">
+                                        입력 완료
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             );
         };
 
         const SharedFooter = ({ activityDate, orgName, appLogo, manager, currentSeal }) => (
-            <div className="mt-auto pt-4 text-center no-break font-bold">
-                <p className="mb-1 text-sm text-gray-700">위와 같이 자원봉사 활동을 확인합니다.</p>
-                <p className="text-lg tracking-[2px] mb-3">{formatKoreanDate(activityDate)}</p>
+            <div className="mt-auto pt-6 text-center no-break font-bold">
+                <p className="mb-2 text-sm text-gray-700">위와 같이 자원봉사 활동을 확인합니다.</p>
+                <p className="text-lg tracking-[2px] mb-4">{formatKoreanDate(activityDate)}</p>
                 <div className="flex justify-center items-center gap-6">
                     <div className="flex items-center gap-2">
                         {appLogo && <img src={appLogo} alt="Logo" className="h-8 object-contain mix-blend-multiply" />}
@@ -470,9 +527,9 @@
                                     </div>
                                 </td>
                             </tr>
-                            <tr style={{height: '70px'}}><td className="bg-s font-bold text-xs">활동내용</td><td className="text-left px-5 font-bold py-2 align-top leading-relaxed text-sm" colSpan="3">{details.title}</td></tr>
-                            <tr style={{height: '70px'}}><td className="bg-s font-bold text-xs">활동준비사항</td><td className="text-left px-5 font-bold py-2 align-top leading-relaxed text-sm" colSpan="3">{details.preparation}</td></tr>
-                            <tr style={{height: '70px'}}><td className="bg-s font-bold text-xs">기타사항</td><td className="text-left px-5 font-bold py-2 align-top leading-relaxed text-sm" colSpan="3">{details.otherDetails}</td></tr>
+                            <tr style={{height: '75px'}}><td className="bg-s font-bold text-xs">활동내용</td><td className="text-left px-5 font-bold py-3 align-top leading-relaxed text-sm" colSpan="3">{details.title}</td></tr>
+                            <tr style={{height: '75px'}}><td className="bg-s font-bold text-xs">활동준비사항</td><td className="text-left px-5 font-bold py-3 align-top leading-relaxed text-sm" colSpan="3">{details.preparation}</td></tr>
+                            <tr style={{height: '75px'}}><td className="bg-s font-bold text-xs">기타사항</td><td className="text-left px-5 font-bold py-3 align-top leading-relaxed text-sm" colSpan="3">{details.otherDetails}</td></tr>
                         </tbody>
                     </table>
                 </div>
@@ -482,7 +539,7 @@
 
         const DocumentRosterView = ({ details, selectedMembers, orgName, appLogo, currentSeal, useAutoSignature }) => (
             <div className="paper-view print-area flex flex-col font-bold bg-white text-black">
-                <h1 className="text-3xl text-center mb-8 mt-4 tracking-[0.5em] underline underline-offset-[16px] fw-black">참 석 명 부</h1>
+                <h1 className="text-3xl text-center mb-10 mt-6 tracking-[0.5em] underline underline-offset-[16px] fw-black">참 석 명 부</h1>
                 <table className="preview-table">
                     <thead><tr className="bg-h font-bold"><th className="w-16">No.</th><th className="w-32">성 명</th><th>생년월일</th><th className="w-48">연락처</th><th className="w-32">참석확인</th></tr></thead>
                     <tbody>
@@ -497,8 +554,8 @@
                                 </td>
                             </tr>
                         ))}
-                        {/* 여유 공간을 위해 빈 행 생성 개수 13에서 12로 감소 */}
-                        {[...Array(Math.max(0, 12 - selectedMembers.length))].map((_, i) => (<tr key={i}><td className="text-transparent">-</td><td></td><td></td><td></td><td className="h-10"></td></tr>))}
+                        {/* 여유 공간을 위해 빈 행 생성 개수와 행 높이(h-10) 감소 */}
+                        {[...Array(Math.max(0, 13 - selectedMembers.length))].map((_, i) => (<tr key={i}><td className="text-transparent">-</td><td></td><td></td><td></td><td className="h-10"></td></tr>))}
                     </tbody>
                 </table>
                 <SharedFooter activityDate={details.date} orgName={orgName} appLogo={appLogo} manager={details.manager} currentSeal={currentSeal} />
@@ -510,7 +567,7 @@
                 <h1 className="text-3xl text-center mb-6 mt-4 fw-black tracking-widest underline underline-offset-[16px]">자원봉사활동 확인서</h1>
                 <table className="preview-table mb-4">
                     <tbody>
-                        <tr><td className="bg-h w-28 py-2 font-bold text-center" rowSpan="3">수요처</td><td className="bg-s font-bold w-32 text-xs text-center">기관명</td><td className="text-left px-5 font-bold" colSpan="3">
+                        <tr><td className="bg-h w-28 py-3 font-bold text-center" rowSpan="3">수요처</td><td className="bg-s font-bold w-32 text-xs text-center">기관명</td><td className="text-left px-5 font-bold" colSpan="3">
                             <div className="flex items-center gap-2">
                                 {appLogo && <img src={appLogo} className="h-6 object-contain mix-blend-multiply" />}
                                 {orgName}
@@ -545,8 +602,8 @@
                                 <td className="text-[10px] leading-tight text-left px-2 font-bold py-1.5">{details.title}</td>
                             </tr>
                         ))}
-                        {/* 여유 공간 확보를 위해 빈 행 생성 개수를 7로 더 줄이고 행 높이 유지 */}
-                        {[...Array(Math.max(0, 7 - selectedMembers.length))].map((_, i) => (<tr key={i}><td className="h-7"></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>))}
+                        {/* 여유 공간 확보를 위해 빈 행 생성 개수를 8로 줄이고 행 높이(h-7)도 감소 */}
+                        {[...Array(Math.max(0, 8 - selectedMembers.length))].map((_, i) => (<tr key={i}><td className="h-7"></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>))}
                     </tbody>
                 </table>
                 <div className="mt-auto py-4 text-center font-bold">
@@ -577,10 +634,11 @@
             const bal = c + b + i - e;
             const rows = reportDetails.rows || [];
 
-            // 연도와 월 추출 로직
+            // 연도와 월 추출 로직 (활동일자 기준 다음 달, 2자리 포맷팅 적용)
             const dateObj = new Date(details.date || new Date());
-            const yy = String(dateObj.getFullYear()).slice(2);
-            const mm = dateObj.getMonth() + 1;
+            const nextMonthDate = new Date(dateObj.getFullYear(), dateObj.getMonth() + 1, 1);
+            const yy = String(nextMonthDate.getFullYear()).slice(2);
+            const mm = String(nextMonthDate.getMonth() + 1).padStart(2, '0');
 
             return (
                 <div className="paper-view paper-view-landscape print-area flex flex-col font-bold bg-white text-left text-black">
@@ -725,11 +783,26 @@
             );
         };
 
-        const ActivityInfoInput = ({ details, setDetails, members }) => (
+        const ActivityInfoInput = ({ details, setDetails, members, presetTitles, presetPreparations, presetOtherDetails }) => (
             <div className={cx(UI.panel, "space-y-4 mb-6")}>
                 <h3 className={cx(UI.sectionTitle, "text-blue-900")}><Icon name="FileEdit" /> 1. 활동 정보 입력</h3>
                 <div className="space-y-3 text-xs">
-                    <input type="text" className={UI.input} placeholder="활동 명칭" value={details.title} onChange={e=>setDetails({...details, title: e.target.value})} />
+                    
+                    {/* 활동 명칭 - 드롭다운 연동 */}
+                    <div className="flex flex-col gap-1">
+                        <select 
+                            className={cx(UI.input, "bg-slate-50 text-blue-700 py-2 cursor-pointer")} 
+                            onChange={e => { 
+                                if(e.target.value) setDetails({...details, title: e.target.value}); 
+                                e.target.value=''; 
+                            }}
+                        >
+                            <option value="">== 활동 명칭 불러오기 ==</option>
+                            {presetTitles.map(p => <option key={p.id} value={p.label}>{p.label}</option>)}
+                        </select>
+                        <input type="text" className={UI.input} placeholder="활동 명칭 (직접 입력 및 수정 가능)" value={details.title} onChange={e=>setDetails({...details, title: e.target.value})} />
+                    </div>
+
                     <div className="grid grid-cols-2 gap-2">
                         <input type="date" className={UI.input} value={details.date} onChange={e=>setDetails({...details, date: e.target.value})} />
                         <select className={cx(UI.input, "bg-white")} value={details.managerId} onChange={e=>{
@@ -756,11 +829,43 @@
                         <div className="flex flex-wrap gap-1 mb-4">
                             {FIELD_OPTIONS.map(opt => <button key={opt} onClick={() => setDetails(p => ({...p, activityField: p.activityField.includes(opt) ? p.activityField.filter(x=>x!==opt) : [...p.activityField, opt]}))} className={cx("px-2 py-1 rounded text-[10px] border transition-colors", details.activityField.includes(opt) ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-500')}>{opt}</button>)}
                         </div>
+                        
                         <div className="space-y-3 pt-2">
-                            <label className="text-[11px] text-blue-800 font-bold block">활동준비사항</label>
-                            <input type="text" className={UI.input} value={details.preparation} onChange={e=>setDetails({...details, preparation: e.target.value})} placeholder="준비물 등 입력" />
-                            <label className="text-[11px] text-blue-800 font-bold block">기타사항</label>
-                            <textarea className={cx(UI.input, "h-16 resize-none")} value={details.otherDetails} onChange={e=>setDetails({...details, otherDetails: e.target.value})} placeholder="추가 전달사항 입력" />
+                            {/* 활동준비사항 - 드롭다운 연동 */}
+                            <div>
+                                <label className="text-[11px] text-blue-800 font-bold block mb-1">활동준비사항</label>
+                                <div className="flex flex-col gap-1">
+                                    <select 
+                                        className={cx(UI.input, "bg-slate-50 text-blue-700 py-1.5 cursor-pointer")} 
+                                        onChange={e => { 
+                                            if(e.target.value) setDetails({...details, preparation: e.target.value}); 
+                                            e.target.value=''; 
+                                        }}
+                                    >
+                                        <option value="">== 준비사항 불러오기 ==</option>
+                                        {presetPreparations.map(p => <option key={p.id} value={p.label}>{p.label}</option>)}
+                                    </select>
+                                    <input type="text" className={UI.input} value={details.preparation} onChange={e=>setDetails({...details, preparation: e.target.value})} placeholder="준비물 등 직접 입력 가능" />
+                                </div>
+                            </div>
+
+                            {/* 기타사항 - 드롭다운 연동 */}
+                            <div>
+                                <label className="text-[11px] text-blue-800 font-bold block mb-1">기타사항</label>
+                                <div className="flex flex-col gap-1">
+                                    <select 
+                                        className={cx(UI.input, "bg-slate-50 text-blue-700 py-1.5 cursor-pointer")} 
+                                        onChange={e => { 
+                                            if(e.target.value) setDetails({...details, otherDetails: e.target.value}); 
+                                            e.target.value=''; 
+                                        }}
+                                    >
+                                        <option value="">== 기타사항 불러오기 ==</option>
+                                        {presetOtherDetails.map(p => <option key={p.id} value={p.label}>{p.label}</option>)}
+                                    </select>
+                                    <textarea className={cx(UI.input, "h-16 resize-none")} value={details.otherDetails} onChange={e=>setDetails({...details, otherDetails: e.target.value})} placeholder="추가 전달사항 직접 입력 가능" />
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -806,6 +911,16 @@
                 { id: '4', label: '④ 친선행사' }
             ]));
 
+            // 사전 등록 항목 (활동명칭, 준비사항, 기타사항) - 요청하신 내용으로 기본값 적용
+            const defaultTitles = [{id: '1', label: '‘뜨신편지’ 손편지 답장 교육 및 쓰기'}];
+            const defaultPreps = [{id: '1', label: '고민 편지의 손편지 답장 봉사'}];
+            const defaultOthers = [{id: '1', label: '각자의 경험에 맞는 사연의 편지를 선택하고, 손편지 답장 봉사'}];
+
+            // 새로운 기본값이 즉시 반영되도록 로컬스토리지 키를 _v2로 업데이트
+            const [presetTitles, setPresetTitles] = useState(() => safeParse('vms_pt_v2', defaultTitles));
+            const [presetPreparations, setPresetPreparations] = useState(() => safeParse('vms_pp_v2', defaultPreps));
+            const [presetOtherDetails, setPresetOtherDetails] = useState(() => safeParse('vms_po_v2', defaultOthers));
+
             // 신규 회원 항목 확장
             const [newMember, setNewMember] = useState({ name: '', category: '봉사자', role: '', phone: '', email: '', dob: '', address: '', excelNo: '', joinDate: '' });
             const [editingMemberId, setEditingMemberId] = useState(null);
@@ -850,13 +965,18 @@
                     localStorage.setItem('vms_oa_f53', orgAddr);
                     localStorage.setItem('vms_ss_f53', JSON.stringify(savedSeals));
                     localStorage.setItem('vms_at_f53', JSON.stringify(activityTypes));
+                    
+                    // 사전 등록 설정값 저장 (_v2 키 적용)
+                    localStorage.setItem('vms_pt_v2', JSON.stringify(presetTitles));
+                    localStorage.setItem('vms_pp_v2', JSON.stringify(presetPreparations));
+                    localStorage.setItem('vms_po_v2', JSON.stringify(presetOtherDetails));
                 } catch (error) {
                     if (error.name === 'QuotaExceededError') {
                         console.error("저장 공간 부족 오류 발생");
                         // 렌더링에 방해되지 않도록 console로만 알림
                     }
                 }
-            }, [members, historyDocs, appLogo, orgName, orgAddr, savedSeals, activityTypes]);
+            }, [members, historyDocs, appLogo, orgName, orgAddr, savedSeals, activityTypes, presetTitles, presetPreparations, presetOtherDetails]);
 
             // 검색어, 정렬 변경 시 페이지 1로 리셋
             useEffect(() => {
@@ -886,11 +1006,7 @@
 
             // --- Handlers ---
             const handleAddressComplete = (data) => {
-                const selectedAddress =
-                    data.roadAddress ||
-                    data.address ||
-                    data.jibunAddress ||
-                    '';
+                const selectedAddress = data.address || '';
 
                 if (!selectedAddress) {
                     setIsAddressModalOpen(false);
@@ -1395,6 +1511,26 @@
                 return sortedList.slice(startIndex, startIndex + rowsPerPage);
             }, [sortedList, currentPage]);
 
+            // 공통 사전 등록 설정 매니저 렌더링 함수
+            const renderPresetManager = (title, icon, items, setItems) => (
+                <section className="space-y-4 pt-6 border-t">
+                    <h3 className={UI.sectionTitle}><Icon name={icon} size={24}/> {title}</h3>
+                    <div className="space-y-2">
+                        {items.map((item, idx) => (
+                            <div key={item.id} className="flex gap-2 items-center">
+                                <input type="text" className={UI.input} value={item.label} onChange={e => {
+                                    const newItems = [...items];
+                                    newItems[idx].label = e.target.value;
+                                    setItems(newItems);
+                                }} placeholder="항목 내용을 입력하세요" />
+                                <button onClick={() => setItems(items.filter(t => t.id !== item.id))} className="text-red-500 p-2 hover:bg-red-50 rounded-lg transition-colors"><Icon name="MinusCircle" size={20}/></button>
+                            </div>
+                        ))}
+                        <button onClick={() => setItems([...items, { id: Date.now().toString(), label: '' }])} className="w-full bg-slate-100 text-slate-600 p-3 rounded-lg text-sm font-bold border border-dashed border-slate-300 flex items-center justify-center gap-2 mt-2 hover:bg-slate-200 transition-colors"><Icon name="PlusCircle" size={16}/> 항목 추가</button>
+                    </div>
+                </section>
+            );
+
             return (
                 <div className="min-h-screen flex flex-col font-bold print:block relative">
                     {/* 브라우저 다운 현상을 방지하기 위한 대용량 파싱 중 전면 로딩 화면 */}
@@ -1705,11 +1841,11 @@
                                     {(previewDocType === 'roster' || previewDocType === 'cert') ? (
                                         <Fragment>
                                             <AttendanceListInput docSearchTerm={docSearchTerm} setDocSearchTerm={setDocSearchTerm} focusedIndex={focusedIndex} setFocusedIndex={setFocusedIndex} docSearchResults={docSearchResults} handleKeyDown={handleKeyDown} selectedMemberIds={selectedMemberIds} setSelectedMemberIds={setSelectedMemberIds} members={members} setMembers={setMembers} />
-                                            <ActivityInfoInput details={activityDetails} setDetails={setActivityDetails} members={members} />
+                                            <ActivityInfoInput details={activityDetails} setDetails={setActivityDetails} members={members} presetTitles={presetTitles} presetPreparations={presetPreparations} presetOtherDetails={presetOtherDetails} />
                                         </Fragment>
                                     ) : (
                                         <Fragment>
-                                            <ActivityInfoInput details={activityDetails} setDetails={setActivityDetails} members={members} />
+                                            <ActivityInfoInput details={activityDetails} setDetails={setActivityDetails} members={members} presetTitles={presetTitles} presetPreparations={presetPreparations} presetOtherDetails={presetOtherDetails} />
                                             <AttendanceListInput docSearchTerm={docSearchTerm} setDocSearchTerm={setDocSearchTerm} focusedIndex={focusedIndex} setFocusedIndex={setFocusedIndex} docSearchResults={docSearchResults} handleKeyDown={handleKeyDown} selectedMemberIds={selectedMemberIds} setSelectedMemberIds={setSelectedMemberIds} members={members} setMembers={setMembers} />
                                         </Fragment>
                                     )}
@@ -1850,6 +1986,10 @@
                                             <button onClick={() => setActivityTypes([...activityTypes, { id: Date.now().toString(), label: '신규 구분' }])} className="w-full bg-slate-100 text-slate-600 p-3 rounded-lg text-sm font-bold border border-dashed border-slate-300 flex items-center justify-center gap-2 mt-2 hover:bg-slate-200 transition-colors"><Icon name="PlusCircle" size={16}/> 항목 추가</button>
                                         </div>
                                     </section>
+
+                                    {renderPresetManager('활동 명칭 사전등록', 'FileText', presetTitles, setPresetTitles)}
+                                    {renderPresetManager('활동 준비사항 사전등록', 'PackageCheck', presetPreparations, setPresetPreparations)}
+                                    {renderPresetManager('기타사항 사전등록', 'MessageSquare', presetOtherDetails, setPresetOtherDetails)}
 
                                     <section className="space-y-4"><h3 className={UI.sectionTitle}><Icon name="PenTool" size={24}/> 관리자 직인 관리</h3>{members.filter(m => m.category === '관리자').map(mgr => (<div key={mgr.id} className="flex items-center justify-between p-4 bg-slate-50 border rounded-2xl"><span className="text-slate-800 font-bold">{mgr.name}</span><div className="flex items-center gap-4"><div className="w-12 h-12 border bg-white rounded-lg overflow-hidden flex items-center justify-center shadow-inner">{savedSeals[mgr.name] ? <img src={savedSeals[mgr.name]} className="max-w-full max-h-full object-contain" /> : <Icon name="Stamp" className="text-slate-200"/>}</div><label className={cx(UI.buttonPrimary, "bg-indigo-600 hover:bg-indigo-700")}>업로드<input type="file" className="hidden" onChange={async (e) => { if(e.target.files[0]) { const b64 = await resizeImage(e.target.files[0], 200); setSavedSeals(prev => ({...prev, [mgr.name]: b64})); } }} /></label></div></div>))}</section>
                                 </div>
