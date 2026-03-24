@@ -1187,7 +1187,7 @@
                 const wb = XLSX.utils.book_new();
                 XLSX.utils.book_append_sheet(wb, ws, "회원명부");
                 
-                const defaultFileName = `회원명부_${new Date().toISOString().split('T')[0]}.xlsx`;
+                const defaultFileName = `회원명부.xlsx`;
 
                 try {
                     // File System Access API를 이용해 "다른 이름으로 저장" 창 호출
@@ -2058,7 +2058,18 @@
                             <div className="bg-white rounded-[4rem] shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden border border-slate-200">
                                 <div className="p-12 bg-slate-900 text-white flex justify-between items-center"><h2 className="text-2xl font-bold flex items-center gap-4"><Icon name="Settings" size={32} /> Configuration</h2><button onClick={()=>setIsSettingsOpen(false)} className="hover:rotate-90 hover:text-red-400 transition-all duration-500"><Icon name="X" size={32}/></button></div>
                                 <div className="p-10 overflow-y-auto flex-1 space-y-10">
-                                    <section className="space-y-4"><h3 className={UI.sectionTitle}><Icon name="Image" size={24}/> 시스템 로고</h3><div className="flex items-center gap-6"><div className="w-24 h-24 border-2 border-dashed border-slate-200 rounded-2xl flex items-center justify-center bg-slate-50 overflow-hidden shadow-inner">{appLogo ? <img src={appLogo} className="max-w-full max-h-full object-contain" /> : <span className="text-slate-300 text-xs text-center font-bold">NO LOGO</span>}</div><label className={UI.buttonPrimary}>파일 선택<input type="file" className="hidden" accept="image/*" onChange={async (e) => {if(e.target.files[0]) setAppLogo(await resizeImage(e.target.files[0]))}} /></label></div></section>
+                                    <section className="space-y-4">
+                                        <h3 className={UI.sectionTitle}><Icon name="Image" size={24}/> 시스템 로고</h3>
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-20 h-20 border-2 border-dashed border-slate-200 rounded-2xl flex items-center justify-center bg-slate-50 overflow-hidden shadow-inner shrink-0">
+                                                {appLogo ? <img src={appLogo} className="max-w-full max-h-full object-contain" onError={(e) => e.target.style.display='none'} /> : <span className="text-slate-300 text-xs text-center font-bold">NO LOGO</span>}
+                                            </div>
+                                            <div className="flex flex-col gap-2 flex-1">
+                                                <input type="text" className={UI.input} value={appLogo || ''} onChange={e=>setAppLogo(e.target.value)} placeholder="이미지 파일명 (예: logo.png) 또는 URL 입력" />
+                                                <label className={cx(UI.buttonPrimary, "w-fit")}>PC에서 파일 찾기<input type="file" className="hidden" accept="image/*" onChange={async (e) => {if(e.target.files[0]) setAppLogo(await resizeImage(e.target.files[0]))}} /></label>
+                                            </div>
+                                        </div>
+                                    </section>
                                     <section className="space-y-4"><h3 className={UI.sectionTitle}><Icon name="Building" size={24}/> 기관 정보</h3><div className="space-y-2"><input type="text" className={cx(UI.input, "bg-slate-50 p-4 rounded-2xl")} value={orgName} onChange={e=>setOrgName(e.target.value)} placeholder="기관 명칭" /><input type="text" className={cx(UI.input, "bg-slate-50 p-4 rounded-2xl")} value={orgAddr} onChange={e=>setOrgAddr(e.target.value)} placeholder="기관 주소" /></div></section>
                                     
                                     <section className="space-y-4">
@@ -2082,7 +2093,21 @@
                                     {renderPresetManager('활동 준비사항 사전등록', 'PackageCheck', presetPreparations, setPresetPreparations)}
                                     {renderPresetManager('기타사항 사전등록', 'MessageSquare', presetOtherDetails, setPresetOtherDetails)}
 
-                                    <section className="space-y-4"><h3 className={UI.sectionTitle}><Icon name="PenTool" size={24}/> 관리자 직인 관리</h3>{members.filter(m => m.category === '관리자').map(mgr => (<div key={mgr.id} className="flex items-center justify-between p-4 bg-slate-50 border rounded-2xl"><span className="text-slate-800 font-bold">{mgr.name}</span><div className="flex items-center gap-4"><div className="w-12 h-12 border bg-white rounded-lg overflow-hidden flex items-center justify-center shadow-inner">{savedSeals[mgr.name] ? <img src={savedSeals[mgr.name]} className="max-w-full max-h-full object-contain" /> : <Icon name="Stamp" className="text-slate-200"/>}</div><label className={cx(UI.buttonPrimary, "bg-indigo-600 hover:bg-indigo-700")}>업로드<input type="file" className="hidden" onChange={async (e) => { if(e.target.files[0]) { const b64 = await resizeImage(e.target.files[0], 200); setSavedSeals(prev => ({...prev, [mgr.name]: b64})); } }} /></label></div></div>))}</section>
+                                    <section className="space-y-4">
+                                        <h3 className={UI.sectionTitle}><Icon name="PenTool" size={24}/> 관리자 직인 관리</h3>
+                                        {members.filter(m => m.category === '관리자').map(mgr => (
+                                            <div key={mgr.id} className="flex items-center justify-between p-4 bg-slate-50 border rounded-2xl">
+                                                <span className="text-slate-800 font-bold w-1/3">{mgr.name}</span>
+                                                <div className="flex items-center gap-3 w-2/3 justify-end">
+                                                    <input type="text" className={cx(UI.input, "text-xs w-full")} value={savedSeals[mgr.name] || ''} onChange={e => setSavedSeals(prev => ({...prev, [mgr.name]: e.target.value}))} placeholder="파일명 (예: seal.png)" />
+                                                    <div className="w-10 h-10 border bg-white rounded-lg overflow-hidden flex items-center justify-center shadow-inner shrink-0">
+                                                        {savedSeals[mgr.name] ? <img src={savedSeals[mgr.name]} className="max-w-full max-h-full object-contain" onError={(e) => e.target.style.display='none'} /> : <Icon name="Stamp" className="text-slate-200"/>}
+                                                    </div>
+                                                    <label className={cx(UI.buttonPrimary, "bg-indigo-600 hover:bg-indigo-700 whitespace-nowrap px-3 py-2")}>찾기<input type="file" className="hidden" onChange={async (e) => { if(e.target.files[0]) { const b64 = await resizeImage(e.target.files[0], 200); setSavedSeals(prev => ({...prev, [mgr.name]: b64})); } }} /></label>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </section>
                                 </div>
                                 <div className="p-8 border-t bg-white text-right"><button onClick={()=>setIsSettingsOpen(false)} className="bg-blue-600 text-white px-20 py-5 rounded-[2rem] fw-black text-xl shadow-2xl hover:bg-blue-700 active:scale-95 transition-transform">CLOSE</button></div>
                             </div>
