@@ -544,26 +544,26 @@
                     <thead><tr className="bg-h font-bold"><th className="w-16">No.</th><th className="w-32">성 명</th><th>생년월일</th><th className="w-48">연락처</th><th className="w-32">참석확인</th></tr></thead>
                     <tbody>
                         {selectedMembers.map((m, i) => (
-                            <tr key={m.id}>
+                            <tr key={m.id} className="h-10">
                                 <td>{i+1}</td>
                                 <td className="font-bold">{m.name}</td>
                                 <td>{m.dob}</td>
                                 <td>{m.phone}</td>
-                                <td className="overflow-hidden text-center h-10 align-middle relative">
-                                    {useAutoSignature ? (
-                                        m.signature ? (
-                                            <div className="absolute inset-0 flex items-center justify-center p-0.5">
-                                                <img src={m.signature} className="max-h-full max-w-full object-contain mix-blend-multiply opacity-95" alt="서명" />
-                                            </div>
-                                        ) : (
-                                            <span style={getSignatureStyle(m.name, i)}>{m.name}</span>
-                                        )
-                                    ) : null}
+                                <td className="!p-0 relative text-center align-middle">
+                                    <div className="absolute inset-0 flex items-center justify-center overflow-hidden">
+                                        {useAutoSignature ? (
+                                            m.signature ? (
+                                                <img src={m.signature} className="max-h-[90%] max-w-[90%] object-contain mix-blend-multiply opacity-95" alt="서명" />
+                                            ) : (
+                                                <span style={getSignatureStyle(m.name, i)}>{m.name}</span>
+                                            )
+                                        ) : null}
+                                    </div>
                                 </td>
                             </tr>
                         ))}
-                        {/* 여유 공간을 위해 빈 행 생성 개수와 행 높이(h-10) 감소 */}
-                        {[...Array(Math.max(0, 13 - selectedMembers.length))].map((_, i) => (<tr key={i}><td className="text-transparent">-</td><td></td><td></td><td></td><td className="h-10"></td></tr>))}
+                        {/* 여유 공간을 위해 빈 행 생성 개수와 행 높이(h-10) 일관성 유지 */}
+                        {[...Array(Math.max(0, 13 - selectedMembers.length))].map((_, i) => (<tr key={i} className="h-10"><td className="text-transparent">-</td><td></td><td></td><td></td><td></td></tr>))}
                     </tbody>
                 </table>
                 <SharedFooter activityDate={details.date} orgName={orgName} appLogo={appLogo} manager={details.manager} currentSeal={currentSeal} />
