@@ -960,6 +960,58 @@
                 if (defaultManager) {
                     setActivityDetails(prev => ({ ...prev, managerId: defaultManager.id, manager: defaultManager.name, managerPhone: defaultManager.phone }));
                 }
+
+                // GitHub 등 웹 서버 환경에서 회원명부.xlsx 자동 불러오기
+                fetch('./회원명부.xlsx')
+                    .then(res => {
+                        if (!res.ok) throw new Error('파일 없음');
+                        return res.arrayBuffer();
+                    })
+                    .then(buffer => {
+                        const wb = window.XLSX.read(new Uint8Array(buffer), { type: 'array' });
+                        const json = window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]);
+                        let currentMax = loadedMembers.length > 0 ? Math.max(...loadedMembers.map(m => parseInt(m.excelNo) || 0)) : 0;
+
+                        const parsed = json.map((row, i) => {
+                            const phoneRaw = String(row['전화번호'] || row['연락처'] || row['휴대폰'] || '');
+                            let eNo = String(row['No.'] || row['no'] || row['번호'] || row['No'] || '').trim();
+                            if (!eNo) {
+                                currentMax++;
+                                eNo = currentMax.toString();
+                            } else {
+                                const pNo = parseInt(eNo);
+                                if (!isNaN(pNo) && pNo > currentMax) currentMax = pNo;
+                            }
+
+                            return {
+                                id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : (Date.now() + i + Math.random()).toString(36),
+                                excelNo: eNo,
+                                name: String(row['성명'] || row['이름'] || '').trim(),
+                                category: String(row['구분'] || '봉사자').trim(),
+                                role: String(row['역할'] || row['직책'] || row['직위'] || '').trim(),
+                                phone: formatPhone(phoneRaw),
+                                email: String(row['이메일'] || row['e-mail'] || row['email'] || '').trim(),
+                                dob: parseExcelDate(row['생년월일']),
+                                address: String(row['주소'] || '').trim(),
+                                joinDate: parseExcelDate(row['가입일'] || row['등록일']),
+                            }
+                        }).filter(m => m.name);
+
+                        // 이름과 연락처를 기준으로 중복을 제외하고 새로운 데이터만 병합 (기존 서명, 수정 데이터 보존)
+                        setMembers(prevMembers => {
+                            const newMembers = parsed.filter(pm => 
+                                !prevMembers.some(em => em.name === pm.name && em.phone === pm.phone)
+                            );
+                            if (newMembers.length > 0) {
+                                console.log(`자동 불러오기: ${newMembers.length}명의 새 회원이 추가되었습니다.`);
+                                return [...newMembers, ...prevMembers];
+                            }
+                            return prevMembers;
+                        });
+                    })
+                    .catch(err => {
+                        console.log('자동 불러오기 생략 (회원명부.xlsx 파일이 없거나 접근할 수 없습니다.)');
+                    });
             }, []);
 
             useEffect(() => {
